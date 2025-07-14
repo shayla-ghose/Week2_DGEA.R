@@ -1,0 +1,149 @@
+library(GEOquery)
+library(limma)
+
+
+
+
+gse <- getGEO("GSE93272", GSEMatrix = TRUE, AnnotGPL = TRUE)
+gse_data <- gse[[1]]
+exprs_data <- exprs(gse_data)
+#View(exprs_data)
+pheno_data <- pData(gse_data)
+feature_data <- fData(gse_data)
+
+write.csv(exprs_data, "~/Project/week1/GSE93272_expression_matrix.csv") # raw data
+write.csv(pheno_data, "~/Project/week1/GSE93272_sample_metadata.csv")
+write.csv(feature_data, "~/Project/week1/GSE93272_probe_annotation.csv")
+
+# Sample raw data
+data <- c(exprs_data)
+
+# Find the minimum value
+min_value <- min(data)
+
+# Find the maximum value
+max_value <- max(data)
+
+# Print results
+cat("Minimum value:", min_value, "\n")
+cat("Maximum value:", max_value, "\n")
+
+
+
+# Remove probes with too many NAs or zero variance
+exprs_data <- exprs_data[complete.cases(exprs_data), ]
+exprs_data <- exprs_data[apply(exprs_data, 1, var) > 0.01, ]  # change threshold as needed
+# Filter out low expression probes (e.g., below 25th percentile)
+
+exprs_data_1 <- log2(exprs_data + 1) # normalized data
+
+# Sample normalized data
+data1 <- c(exprs_data_1)
+
+# Find the minimum value
+min_value_1 <- min(data1)
+
+# Find the maximum value
+max_value_1 <- max(data1)
+
+# Print results
+cat("Minimum value:", min_value_1, "\n")
+cat("Maximum value:", max_value_1, "\n")
+
+
+threshold <- quantile(rowMeans(exprs_data), 0.25)
+exprs_data <- exprs_data[rowMeans(exprs_data) > threshold, ]
+
+
+
+# Ensure annotation includes gene symbols
+feature_data <- fData(gse_data)
+head(feature_data$`Gene symbol`)  # Confirm it has gene symbols
+
+# Combine expression data and annotation
+exprs_annotated <- data.frame(probe_id = rownames(exprs_data),
+                              exprs_data,
+                              stringsAsFactors = FALSE) # exp annotated data
+
+# Add gene symbols
+exprs_annotated$gene_symbol <- feature_data[rownames(exprs_data), "Gene symbol"]
+exprs_annotated$gene_symbol <- sapply(strsplit(exprs_annotated$gene_symbol, "///", fixed = TRUE), `[`, 1)
+
+# Sample annotated data - data frame needed for volcano plot
+'''data_2 <- c(exprs_annotated)
+
+# Example list   [] , {}
+my_list <- list(data_2)
+
+# Convert to data frame
+df <- as.data.frame(my_list) # both numerical as well as categorical 
+
+View(df)
+
+df2 <- subset(df, select = -c(gene_symbol)) 
+View(df2)
+df3 <- subset(df2, select =-c(probe_id))
+View(df3)
+
+# Find the minimum value
+min_value <- min(df3)
+
+# Find the maximum value
+max_value <- max(df3)
+
+# Print results
+cat("Minimum value:", min_value, "\n")
+cat("Maximum value:", max_value, "\n")'''
+
+
+write.csv(exprs_annotated, "~/Project/week1/GSE272_Exprs_annotated.csv")
+
+
+female_samples <- pheno_data$`gender:ch1` == "F"
+exprs_female <- exprs_annotated[, female_samples]
+pheno_female <- pheno_data[female_samples, ]
+#View(pheno_female)
+
+
+exprs_female_matrix <- exprs_female[, !(colnames(exprs_female) %in% c("probe_id", "gene_symbol"))]
+
+
+
+group_female <- factor(pheno_female$`disease state:ch1`)
+design_female <- model.matrix(~ 0 + group_female)
+colnames(design_female) <- make.names(colnames(design_female))
+contrast.matrix <- makeContrasts(RA_vs_Control = group_femaleRA - group_femalehealthy.control, levels = design_female)
+
+# what is p-value? why is it used by so many?
+# maximum and minimum value
+# firstly, start with raw expression data 
+
+
+
+
+fit <- lmFit(exprs_female_matrix, design_female)
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+
+results <- topTable(fit2, adjust = "fdr", number = Inf)
+
+results$probe_id <- rownames(results)
+results_annotated <- merge(results, exprs_annotated[, c("probe_id", "gene_symbol")], by = "probe_id", all.x = TRUE)
+
+
+significant_DEGs <- results_annotated[results_annotated$adj.P.Val < 0.05 & abs(results_annotated$logFC) > 0.5, ]
+write.csv(significant_DEGs, "~/Project/week1/OVERALL_FEMALE_0.5.csv", row.names = FALSE)
+
+up_genes = c(upregulated <- significant_DEGs[significant_DEGs$logFC > 1, ])
+
+
+
+# Create a logical vector indicating whether each row in exprs_annotated is "upregulated"
+exprs_annotated$up_genes <- exprs_annotated$logFC > 1
+
+
+
+# Add up and down regulated to exprs annotated data frame
+#df_2 <- cbind(exprs_annotated, up_genes = c(upregulated <- significant_DEGs[significant_DEGs$logFC > 1, ]))
+#df_3 <- cbind(df_2, down_genes = c(downregulated <- significant_DEGs[significant_DEGs$logFC < -1, ]))
+View(df_3)
